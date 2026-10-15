@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-telegram-approve",
+  "version": "0.2.0",
+  "description": "Approve native Codex requests through Telegram while keeping your terminal UI and HUD.",
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "Codex Telegram Approve",
+        "shortDescription": "Set up Telegram approvals for local Codex sessions"
+      },
+      "hooks": []
+    }
+  }
+}

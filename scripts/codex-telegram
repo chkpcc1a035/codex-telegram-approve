@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+[[ -f "$project_dir/.env" ]] || { echo 'Run scripts/setup.sh first.' >&2; exit 1; }
+[[ -x "$project_dir/bin/codex-telegram-approve" ]] || { echo 'Build the host binary first (see README).' >&2; exit 1; }
+# Read only the bridge credential. Never source .env or give the bot token to Codex.
+while IFS='=' read -r key value; do
+  # Windows editors may save .env with CRLF line endings. The CR is not
+  # part of the credential and is forbidden in an HTTP header value.
+  value=${value%$'\r'}
+  if [[ "$key" == BRIDGE_TOKEN ]]; then export BRIDGE_TOKEN="$value"; fi
+done < "$project_dir/.env"
+exec "$project_dir/bin/codex-telegram-approve" run "$@"

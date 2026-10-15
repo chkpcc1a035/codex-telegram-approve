@@ -1,0 +1,14 @@
+services:
+  approvals:
+    build: .
+    restart: unless-stopped
+    env_file: ${APPROVAL_ENV_FILE:-.env}
+    environment:
+      LISTEN_ADDR: ":8080"
+    ports:
+      - "127.0.0.1:8787:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    stop_grace_period: 10s
