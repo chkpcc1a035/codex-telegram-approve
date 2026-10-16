@@ -41,16 +41,111 @@ codex plugin add codex-telegram-approve@codex-telegram-approve-local
 
 Restart your normal `cx` or `codex` session. Open `/hooks`, review and trust the
 Telegram `PermissionRequest` hook. Plugin installation alone does not trust it.
-Once trusted, the configured user hook forwards gated approvals in subsequent sessions;
+Once trusted, the configured user hook routes gated approvals using the selected mode;
 no startup prompt or replacement terminal client is needed. Your existing approval
 policy and sandbox still determine which actions require approval. For a test,
 launch `cx --ask-for-approval untrusted` and ask for a harmless command.
+
+### Computer and Telegram modes
+
+Computer is the default, including after upgrading an existing installation. It
+returns control to Codex's normal approval flow immediately without contacting
+Telegram. Telegram mode sends the request to Telegram and waits for its decision.
+Neither mode changes your Codex approval policy or sandbox.
+
+Run these commands from this checkout in another terminal while Codex is running:
+
+```bash
+./scripts/approval-mode status
+./scripts/approval-mode telegram
+./scripts/approval-mode computer
+./scripts/approval-mode toggle
+```
+
+The setting is shared across this user's sessions and stored atomically in
+`~/.config/codex-telegram-approve/mode.json`. Each request reads it once, so
+switching affects new requests only. A pending Telegram request still needs a
+Telegram decision or cancellation of the requesting operation in Codex.
+Malformed mode settings deny requests; explicitly select `computer` or
+`telegram` to repair the file. This toggle applies to the native hook, not the
+separate App Server launcher.
+
+To display `Approval mode (next): Computer` or `Telegram` in an existing
+codex-hud environment line:
+
+```bash
+python3 scripts/install-hud-mode.py /path/to/codex-hud
+cd /path/to/codex-hud
+npm run build
+```
+
+Restart `cx` once to load the updated HUD. Later mode switches appear on the
+HUD's next refresh without restarting. The indicator shows the configured
+handler, not hook trust or bridge health; `/hooks` still controls whether Codex
+runs the handler. Review the changed hook again there after upgrading. This
+integration changes the HUD wrapper, without requiring a custom Codex build.
+
+### Custom Codex: concurrent approval and native slash commands
+
+The patch in `patches/codex-0.162.1-concurrent-approvals.patch` targets Codex
+0.162.1 (commit `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`). It adds a native
+`/approval-mode` command and an optional concurrent Telegram reviewer in Codex's
+App Server. Ordinary policy hooks still run before reviewer approval. Our
+Telegram hook defers in concurrent mode so it cannot steal the native prompt.
+
+Build with Rust 1.95 and Codex's native build prerequisites installed:
+
+```bash
+./scripts/build-custom-codex
+./bin/native/codex --no-daemon
+```
+
+The build script uses an isolated source checkout and leaves the installed Codex
+executable unchanged. `--no-daemon` ensures the terminal uses the patched server.
+To use the build with the existing `cx` HUD from this checkout:
+
+```bash
+PATH="$PWD/bin/native:$PATH" cx --no-daemon
+```
+
+Inside the patched terminal:
+
+```text
+/approval-mode concurrent
+/approval-mode concurrent 5
+/approval-mode computer
+/approval-mode telegram
+/approval-mode status
+```
+
+Rebuild the bridge backend from this checkout before enabling concurrent mode.
+The patched reviewer requires an explicit phone-vote source in the bridge's
+response, so an older backend or an expired request falls back to the terminal
+instead of being mistaken for a phone denial.
+
+Concurrent mode shows the native approval immediately and sends the same request
+to Telegram. A terminal response wins immediately. A Telegram vote starts a
+five-second override window (configurable from 1 to 60 seconds); the terminal
+can override either phone vote until the server commits it. The native prompt
+shows the countdown. If Telegram is unavailable or its response is invalid,
+the request stays available for terminal approval. Cancellation drops the
+outstanding bridge request and stale responses cannot authorize execution.
+
+Phone votes are provisional: the Telegram card records the vote, while the
+native terminal owns the final outcome. File approvals include the complete
+changes; permission approvals grant only the requested permissions for the turn.
+
+For the existing standalone toggle, use
+`./scripts/approval-mode concurrent --veto-seconds 5`. Stock Codex in concurrent
+mode uses only native approval; concurrent Telegram review requires the patched
+server. Settings affect new requests across this user's sessions, including
+sessions using another Codex build.
 
 The hook reads only the bridge credential from the checkout's `.env`, handling
 Windows CRLF. Configuration in `~/.config/codex-telegram-approve/hook.json` stores
 only the checkout path and bridge URL. No bot token is copied into plugin cache.
 All native hook events retain their full tool input in the Telegram preview.
-Bridge failure, delivery failure, invalid responses and timeout return an explicit
+In Telegram mode, bridge failure, delivery failure, invalid responses and timeout return an explicit
 denial. Untrusted or disabled hooks are skipped by Codex and use its normal flow.
 The hook waits up to 1,850 seconds; the backend's configured approval timeout
 (default five minutes, maximum 30 minutes) normally expires first.

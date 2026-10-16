@@ -9,6 +9,21 @@ import urllib.request
 import urllib.parse
 
 CONFIG = Path.home() / '.config/codex-telegram-approve/hook.json'
+MODE_CONFIG = CONFIG.with_name('mode.json')
+
+def read_mode():
+    """Missing settings use native approval; malformed settings fail closed."""
+    try:
+        settings = json.loads(MODE_CONFIG.read_text())
+        mode = settings['mode']
+        veto = settings.get('veto_seconds', 5)
+        if type(veto) is not int or not 1 <= veto <= 60:
+            raise ValueError('invalid veto window')
+    except FileNotFoundError:
+        return 'computer'
+    if mode not in ('computer', 'telegram', 'concurrent'):
+        raise ValueError('invalid approval mode')
+    return mode
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
@@ -50,11 +65,17 @@ def main():
     message = 'Denied in Telegram.'
     try:
         event = json.loads(sys.stdin.read(65537))
+        if event.get('hook_event_name') != 'PermissionRequest':
+            raise ValueError('unexpected hook event')
+        # Snapshot once: changing modes never changes an in-flight decision.
+        if read_mode() in ('computer', 'concurrent'):
+            print('{}')
+            return
         allowed = decision(event)
     except Exception:
         # URLs, request headers and credentials must never reach hook output.
         allowed = False
-        message = 'Telegram approval unavailable; denied. Check bridge health and hook configuration.'
+        message = 'Approval unavailable; denied. Check approval mode, bridge health and hook configuration.'
     result = {'behavior': 'allow' if allowed else 'deny'}
     if not allowed:
         result['message'] = message

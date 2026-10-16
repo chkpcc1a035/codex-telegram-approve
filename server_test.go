@@ -78,6 +78,34 @@ func TestApprovalRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestDecisionSourceDistinguishesPhoneVoteFromTimeout(t *testing.T) {
+	for _, choice := range []string{"accept", "decline", ""} {
+		t.Run(choice, func(t *testing.T) {
+			b, srv := fakeBackend(t, choice)
+			b.timeout = 20 * time.Millisecond
+			body, _ := json.Marshal(sampleApproval())
+			req, _ := http.NewRequest("POST", srv.URL+"/v1/approvals", bytes.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+testToken)
+			response, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer response.Body.Close()
+			var result decision
+			if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+				t.Fatal(err)
+			}
+			want := "telegram"
+			if choice == "" {
+				want = "timeout"
+			}
+			if result.Source != want {
+				t.Fatalf("got source %q; want %q", result.Source, want)
+			}
+		})
+	}
+}
 func TestCallbackAuthorizationAndReplay(t *testing.T) {
 	b := &backend{chat: -1, user: 42, pending: make(map[string]*pending)}
 	p := &pending{ch: make(chan string, 1), message: 10, expires: time.Now().Add(time.Minute)}

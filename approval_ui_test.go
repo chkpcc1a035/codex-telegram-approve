@@ -40,11 +40,21 @@ func TestDetailsPreserveUnicodeAndEscapeMarkup(t *testing.T) {
 }
 func TestLargeCardFitsTelegram(t *testing.T) {
 	a := sampleApproval()
+	a.VetoSeconds = 5
 	params := map[string]any{"command": strings.Repeat("😀", 4000), "reason": strings.Repeat("😀", 1000), "cwd": strings.Repeat("😀", 1000)}
 	a.Params, _ = json.Marshal(params)
 	card := approvalCard(a, "0123456789abcdef", time.Now())
 	// Limits apply after parsing entities: this example needs no escaping.
 	if len(utf16.Encode([]rune(card))) > 4096 {
 		t.Fatal("summary card too long")
+	}
+}
+
+func TestConcurrentCardExplainsProvisionalPhoneVote(t *testing.T) {
+	a := sampleApproval()
+	a.VetoSeconds = 5
+	card := approvalCard(a, "0123456789abcdef", time.Now())
+	if !strings.Contains(card, "phone vote is provisional") || !strings.Contains(card, "5 seconds") || !strings.Contains(card, "terminal decision takes priority") {
+		t.Fatal("concurrent card must explain the terminal override window")
 	}
 }

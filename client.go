@@ -190,7 +190,7 @@ func (r *rpcClient) answer(ctx context.Context, m rpcMessage, item json.RawMessa
 		fmt.Fprintln(r.errOut, "Telegram approval unavailable; denying:", err)
 		choice = "decline"
 	}
-	result := any(decision{choice})
+	result := any(decision{Decision: choice})
 	if m.Method == "item/permissions/requestApproval" {
 		result = permissionResult(m.Params, choice == "accept")
 	}

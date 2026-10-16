@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Select the handler for future native Codex approval requests."""
+import argparse
+import importlib.util
+import json
+import os
+from pathlib import Path
+import tempfile
+
+hook_path = Path(__file__).resolve().parents[1] / 'plugins/codex-telegram-approve/hooks/permission_request.py'
+spec = importlib.util.spec_from_file_location('permission_hook', hook_path)
+hook = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hook)
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('mode', nargs='?', default='status',
+                        choices=['status', 'computer', 'telegram', 'concurrent', 'toggle'])
+    parser.add_argument('--veto-seconds', type=int, choices=range(1, 61), metavar='1-60')
+    args = parser.parse_args()
+    try:
+        if args.mode == 'status':
+            mode = hook.read_mode()
+        else:
+            mode = args.mode
+            if mode == 'toggle':
+                mode = 'telegram' if hook.read_mode() == 'computer' else 'computer'
+            if mode in ('telegram', 'concurrent') and not hook.CONFIG.is_file():
+                parser.error('Run python3 scripts/configure-hook.py first.')
+            path = hook.MODE_CONFIG
+            try:
+                settings = json.loads(path.read_text())
+                if not isinstance(settings, dict):
+                    settings = {}
+            except (OSError, ValueError):
+                settings = {}
+            veto = args.veto_seconds or settings.get('veto_seconds', 5)
+            if type(veto) is not int or not 1 <= veto <= 60:
+                veto = 5
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Readers see the complete old or new setting, never partial JSON.
+            with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as stream:
+                temporary = Path(stream.name)
+                try:
+                    json.dump({'mode': mode, 'veto_seconds': veto}, stream)
+                    stream.write('\n')
+                    stream.close()
+                    os.replace(temporary, path)
+                finally:
+                    temporary.unlink(missing_ok=True)
+        print('Approval: ' + mode.title())
+        if mode == 'concurrent':
+            print('Requires the patched Codex build; stock Codex uses native approval only.')
+        if args.mode != 'status':
+            print('Applies to new requests across this user’s sessions; pending requests keep their original handler.')
+    except (OSError, ValueError, KeyError, TypeError):
+        parser.exit(1, 'Cannot read or write approval mode. Select computer or telegram explicitly to repair it.\n')
+
+if __name__ == '__main__':
+    main()

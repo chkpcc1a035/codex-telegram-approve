@@ -18,13 +18,15 @@ import (
 )
 
 type approval struct {
-	Method string          `json:"method"`
-	Host   string          `json:"host"`
-	Params json.RawMessage `json:"params"`
-	Item   json.RawMessage `json:"item,omitempty"`
+	Method      string          `json:"method"`
+	Host        string          `json:"host"`
+	Params      json.RawMessage `json:"params"`
+	Item        json.RawMessage `json:"item,omitempty"`
+	VetoSeconds int             `json:"vetoSeconds,omitempty"`
 }
 type decision struct {
 	Decision string `json:"decision"`
+	Source   string `json:"source,omitempty"`
 }
 type pending struct {
 	ch      chan string
@@ -113,6 +115,10 @@ func (b *backend) handleApproval(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unsupported approval method", 400)
 		return
 	}
+	if a.VetoSeconds < 0 || a.VetoSeconds > 60 {
+		http.Error(w, "invalid veto window", 400)
+		return
+	}
 	// Reject invalid/oversized context rather than offering approval for a truncated preview.
 	details, err := json.MarshalIndent(a, "", "  ")
 	if err != nil || len(details) > 30000 {
@@ -156,15 +162,24 @@ func (b *backend) handleApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	choice := "decline"
+	source := "telegram"
 	status := "✕ Denied"
 	select {
 	case choice = <-p.ch:
 		if choice == "accept" {
 			status = "✓ Approved"
 		}
+		if a.VetoSeconds > 0 {
+			status = "Phone vote: denied · terminal can override"
+			if choice == "accept" {
+				status = "Phone vote: approved · awaiting terminal veto window"
+			}
+		}
 	case <-ctx.Done():
+		source = "timeout"
 		status = "Expired · no approval granted"
 		if r.Context().Err() != nil {
+			source = "cancelled"
 			status = "Cancelled · client disconnected"
 		}
 	}
@@ -176,7 +191,7 @@ func (b *backend) handleApproval(w http.ResponseWriter, r *http.Request) {
 	defer done()
 	_ = b.tg.call(cleanup, "editMessageText", map[string]any{"chat_id": b.chat, "message_id": message.ID, "text": "<b>" + status + "</b>\n\n" + strings.Replace(card, "Approval needed ·", "Request ·", 1), "parse_mode": "HTML", "reply_markup": map[string]any{"inline_keyboard": []any{}}}, nil)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(decision{choice})
+	json.NewEncoder(w).Encode(decision{Decision: choice, Source: source})
 }
 func (b *backend) resolve(c *tgCallback) string {
 	if c.Message == nil || c.From.ID != b.user || c.Message.Chat.ID != b.chat {

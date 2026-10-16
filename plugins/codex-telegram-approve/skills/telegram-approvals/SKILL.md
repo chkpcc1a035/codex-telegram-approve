@@ -19,6 +19,25 @@ Existing approval and sandbox policy remain in effect. Hook failures explicitly
 deny; untrusted hooks are skipped by Codex. The basic `scripts/codex-telegram`
 App Server launcher remains a fallback, with its own line-based interface.
 
+The native hook defaults to Computer mode, which defers to Codex's normal
+approval prompt without contacting Telegram. From the checkout, use
+`./scripts/approval-mode status`, `computer`, `telegram`, or `toggle` to select
+the handler for new requests across the user's sessions. Pending approvals keep
+their original handler. The separate App Server launcher does not use this mode.
+For an existing codex-hud wrapper, `scripts/install-hud-mode.py /path/to/codex-hud`
+adds an `Approval mode (next)` indicator; rebuild that HUD and restart `cx` once.
+The indicator does not verify hook trust or bridge health.
+
+For the optional patched Codex 0.162.1 build, `/approval-mode concurrent 5` enables
+simultaneous native and Telegram review with a terminal override countdown.
+The patch and reproducible build script live in this checkout under `patches/`
+and `scripts/build-custom-codex`. Launch that binary with `--no-daemon` so a stock
+shared daemon cannot handle the requests instead. In concurrent mode this hook
+defers; the patched App Server sends the phone request after ordinary policy
+hooks. Stock Codex in this mode uses only native approval. Phone votes are
+provisional until the native server commits them; never promise a veto after
+execution begins. Existing requests retain their original handler and deadline.
+
 ## Find the running installation
 
 Use the repository path already established in the conversation or the user's

@@ -78,6 +78,9 @@ func approvalCard(a approval, id string, expires time.Time) string {
 		scope = "Requested permissions for this turn"
 	}
 	card.WriteString("\n<b>Scope:</b> " + scope + "\n<b>Expires:</b> " + expires.UTC().Format("15:04:05 UTC") + "\n")
+	if a.VetoSeconds > 0 {
+		fmt.Fprintf(&card, "<b>Terminal priority:</b> your phone vote is provisional. Codex waits %d seconds after receiving it; a terminal decision takes priority until execution begins. Check the terminal for the final outcome.\n", a.VetoSeconds)
+	}
 	card.WriteString("<b>Host:</b> <code>" + html.EscapeString(preview(a.Host, 100)) + "</code>\n")
 	card.WriteString("<code>" + html.EscapeString(id[:8]) + "</code> · Review full request details above.")
 	return card.String()

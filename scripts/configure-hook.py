@@ -21,7 +21,7 @@ groups = hooks.setdefault('hooks', {}).setdefault('PermissionRequest', [])
 command = 'python3 ' + shlex.quote(str(root / 'plugins/codex-telegram-approve/hooks/permission_request.py'))
 if not any(handler.get('command') == command for group in groups for handler in group.get('hooks', [])):
     groups.append({'hooks': [{'type': 'command', 'command': command,
-        'timeout': 1860, 'statusMessage': 'Waiting for your Telegram approval'}]})
+        'timeout': 1860, 'statusMessage': 'Checking approval mode (Computer / Telegram)'}]})
     hooks_path.parent.mkdir(parents=True, exist_ok=True)
     hooks_path.write_text(json.dumps(hooks, indent=2) + '\n')
 print('Registered the Telegram handler in user hooks. Existing hooks and trust are preserved.')

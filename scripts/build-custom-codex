@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Build the pinned Codex patch without replacing the installed Codex executable.
+set -euo pipefail
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+source_dir="${1:-${XDG_CACHE_HOME:-$HOME/.cache}/codex-telegram-native}"
+patch_path="$project_dir/patches/codex-0.162.1-concurrent-approvals.patch"
+expected_commit=092d3acd6bec3e3a14bdc7e7a2810ab628ab759d
+if [[ ! -e "$source_dir" ]]; then
+    git clone --depth 1 --branch rust-v0.162.1 https://github.com/openai/codex.git "$source_dir"
+fi
+actual_commit="$(git -C "$source_dir" rev-parse HEAD)"
+if [[ "$actual_commit" != "$expected_commit" ]]; then
+    printf 'Expected Codex 0.162.1 (%s); found %s. No source changed.\n' "$expected_commit" "$actual_commit" >&2
+    exit 1
+fi
+if git -C "$source_dir" apply --reverse --check "$patch_path" 2>/dev/null; then
+    printf 'Concurrent approval patch is already applied.\n'
+else
+    git -C "$source_dir" apply --check "$patch_path"
+    git -C "$source_dir" apply "$patch_path"
+fi
+export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}"
+cargo test --manifest-path "$source_dir/codex-rs/Cargo.toml" -p codex-telegram-approvals
+cargo build --manifest-path "$source_dir/codex-rs/Cargo.toml" -p codex-cli --bin codex
+mkdir -p "$project_dir/bin/native"
+cp "$source_dir/codex-rs/target/debug/codex" "$project_dir/bin/native/codex"
+printf '\nBuilt %s\nLaunch with --no-daemon to use the patched server instead of a shared stock daemon.\n' "$project_dir/bin/native/codex"

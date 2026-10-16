@@ -2,7 +2,10 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -12,6 +15,62 @@ hook = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(hook)
 
 class HookTests(unittest.TestCase):
+    def test_mode_command_and_hook_share_setting(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, HOME=directory)
+            config = Path(directory) / '.config/codex-telegram-approve'
+            config.mkdir(parents=True)
+            (config / 'hook.json').write_text('{}')
+            def command(mode):
+                return subprocess.run([sys.executable, str(root / 'scripts/approval-mode'), mode], env=env, text=True, capture_output=True, check=True).stdout
+            self.assertIn('Computer', command('status'))
+            self.assertIn('Telegram', command('toggle'))
+            self.assertEqual(json.loads((config / 'mode.json').read_text())['mode'], 'telegram')
+            self.assertIn('Computer', command('toggle'))
+            result = subprocess.run([sys.executable, str(root / 'plugins/codex-telegram-approve/hooks/permission_request.py')], env=env, input='{"hook_event_name":"PermissionRequest"}', text=True, capture_output=True, check=True)
+            self.assertEqual(json.loads(result.stdout), {})
+            (config / 'mode.json').write_text('broken')
+            self.assertIn('Computer', command('computer'))
+
+    def test_computer_mode_defers_without_contacting_bridge(self):
+        out = io.StringIO()
+        event = {'hook_event_name': 'PermissionRequest'}
+        with patch.object(hook, 'read_mode', return_value='computer'), patch.object(hook, 'decision') as decision, patch.object(hook.sys, 'stdin', io.StringIO(json.dumps(event))), contextlib.redirect_stdout(out):
+            hook.main()
+        self.assertEqual(json.loads(out.getvalue()), {})
+        decision.assert_not_called()
+
+    def test_concurrent_mode_defers_to_patched_native_reviewer(self):
+        out = io.StringIO()
+        with patch.object(hook, 'read_mode', return_value='concurrent'), patch.object(hook, 'decision') as decision, patch.object(hook.sys, 'stdin', io.StringIO('{"hook_event_name":"PermissionRequest"}')), contextlib.redirect_stdout(out):
+            hook.main()
+        self.assertEqual(json.loads(out.getvalue()), {})
+        decision.assert_not_called()
+
+    def test_telegram_mode_keeps_explicit_allow_and_deny(self):
+        for allowed in (True, False):
+            out = io.StringIO()
+            with patch.object(hook, 'read_mode', return_value='telegram') as mode, patch.object(hook, 'decision', return_value=allowed), patch.object(hook.sys, 'stdin', io.StringIO('{"hook_event_name":"PermissionRequest"}')), contextlib.redirect_stdout(out):
+                hook.main()
+            self.assertEqual(json.loads(out.getvalue())['hookSpecificOutput']['decision']['behavior'], 'allow' if allowed else 'deny')
+            mode.assert_called_once()
+
+    def test_mode_defaults_and_invalid_setting(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'mode.json'
+            with patch.object(hook, 'MODE_CONFIG', path):
+                self.assertEqual(hook.read_mode(), 'computer')
+                for value in ('computer', 'telegram', 'concurrent'):
+                    path.write_text(json.dumps({'mode': value}))
+                    self.assertEqual(hook.read_mode(), value)
+                for value in ('{}', '{', '{"mode":"allow"}', 'null'):
+                    path.write_text(value)
+                    out = io.StringIO()
+                    with patch.object(hook.sys, 'stdin', io.StringIO('{"hook_event_name":"PermissionRequest"}')), contextlib.redirect_stdout(out):
+                        hook.main()
+                    self.assertEqual(json.loads(out.getvalue())['hookSpecificOutput']['decision']['behavior'], 'deny')
+
     def test_decisions_and_crlf(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
